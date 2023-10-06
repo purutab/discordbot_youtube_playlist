@@ -136,7 +136,7 @@ async def on_message(message):
         # 結果がNoneでなければ、値が存在するというメッセージを表示
         if result is not None:
            #返信の候補をリストに格納
-            duplicate_replys = ["おいジョージ、前のと被ってんぞ" , "もうあるんだな、これが。" , "DIO様より「関係ない。消せ」" , "(動画の)用意はとっくにできてるぜ？"]
+            duplicate_replys = ["おいジョージ、前のと被ってんぞ" , "もうあるんだな、これが。" , "DIO様より「関係ない。消せ」" , "(動画の)用意はとっくにできてるぜ？" , "神は言っている...これはもう見たと。" , "オラこれもう見てっぞ！"]
             duplicate_reply = random.choice(duplicate_replys) # リストからランダムに一つ選ぶ
            # 送ったユーザーにリプライする
             await message.reply(f"{duplicate_reply}")
@@ -198,23 +198,31 @@ async def on_message(message):
                 }
             )
             # youtube data apiでプレイリストに動画を追加するリクエストを実行
-            response = request.execute()
+                    response = request.execute()
 
-
+        # メッセージ送信者に返信するメッセージを作成
+        added_message = f"「{playlist_name_m}」へ「{video_title}」の追加が完了しました。"
         
-    elif message.content == 'hello':
-        # メッセージが"hello"だった場合、"Hello!"と返信する
-        await message.reply("Hello!")
-    else:
-        # youtubeの動画idも"hello"も見つからなかった場合は何もしない
-       return
+        # サーバーidによって、送信先のチャンネルを変える
+        if server_id_in == 1116691515666878555:
+            channel = bot.get_channel(1150074574596218962)
+        elif server_id_in == 1069634960396394516:
+            channel = bot.get_channel(1159101763857694720)
+        else:
+            # その他のサーバーidの場合はデフォルトのチャンネルidを設定
+            channel = bot.get_channel(0)
+            
+        # チャンネルid「123456」のチャンネルに返信する
+        await channel.send(added_message)
 
 
-
-# helloコマンドを実装
-@bot.command(name="hello", description="Hello, worldと返す。ただそれだけ")
-async def hello(ctx: discord.ApplicationContext):
-        await ctx.respond("Hello, world!")
+    
+elif message.content == 'hello':
+    # メッセージが"hello"だった場合、"Hello!"と返信する
+    await message.reply("Hello!")
+else:
+    # youtubeの動画idも"hello"も見つからなかった場合は何もしない
+   return
         
 
 
