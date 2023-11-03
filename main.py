@@ -12,6 +12,7 @@ from googleapiclient.discovery import build
 from google.auth.transport.requests import Request
 import os.path
 import pickle
+import time
 
 # version_p.pyファイルからVersionPクラスをインポート
 from commands.version_p import VersionP
@@ -152,11 +153,47 @@ async def on_message(message):
             await message.reply("プレイリストが未選択です！")
             return
         elif select_playlist is not None:
-            # youtube data apiで動画情報を取得
-            video_info = youtube.videos().list(
-            part="snippet,contentDetails",
-            id=video_id_m
-            ).execute()
+            # youtube data apiで動画情報を取得（try-except文でエラー処理）
+            try:
+                youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION, credentials=credentials)
+                # youtube data apiで動画情報を取得
+                video_info = youtube.videos().list(
+                part="snippet,contentDetails",
+                id=video_id_m
+                ).execute()
+            except BrokenPipeError as e:
+                # エラーが発生した場合は再接続やリトライを行う（再試行回数や間隔は適宜調整）
+                print(f"BrokenPipeError: {e}")
+                print("Trying to reconnect...")
+                # 認証情報をリフレッシュする
+                credentials.refresh(Request())
+                # youtubeオブジェクトを再作成する
+                youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION, credentials=credentials)
+                # リクエストを再送する（最大3回まで）
+                retry_count = 0
+                while retry_count < 3:
+                    try:
+                        youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION, credentials=credentials)
+                        # リクエスト前に少し待つ
+                        time.sleep(1)
+                        # youtube data apiで動画情報を取得
+                        video_info = youtube.videos().list(
+                        part="snippet,contentDetails",
+                        id=video_id_m
+                        ).execute()
+                        # リクエストが成功したらループを抜ける
+                        break
+                    except BrokenPipeError as e:
+                        # リクエストが失敗したら再試行回数を増やす
+                        print(f"BrokenPipeError: {e}")
+                        print("Trying to retry...")
+                        retry_count += 1
+                # 最大試行回数を超えたらエラーを通知する
+                if retry_count == 3:
+                    print("Failed to reconnect or retry.")
+                    await message.channel.send("YouTube Data APIとの通信に失敗しました。しばらくしてからもう一度お試しください。")
+                    return
+                
             # 動画情報から必要なデータを抽出
             video_title = video_info["items"][0]["snippet"]["title"]
             video_link = "https://www.youtube.com/watch?v=" + video_id_m
@@ -166,7 +203,7 @@ async def on_message(message):
             added_time = message.created_at.isoformat()
             added_channel = message.channel.name
             server_id_in = message.guild.id
-
+                
             # DBに動画情報を挿入するSQL文を作成
             sql_video = """
             INSERT INTO video_info_table (video_id, video_title, video_link, video_length, added_time, added_channel, server_id_in)
@@ -191,12 +228,14 @@ async def on_message(message):
                 INSERT INTO playlist_video_relation_table (playlist_record_id, video_record_id)
                 VALUES (%s, %s);
             """
-            # DBにプレイリストNo.と動画No.を紐付ける
+            # DBにプレイリストと動画の関係を挿入
             cur.execute(sql_relation, (playlist_record_id, video_record_id))
             conn.commit()
 
-            # youtube data apiでプレイリストに動画を追加するリクエストを作成
-            request = youtube.playlistItems().insert(
+            # youtube data apiでプレイリストに動画を追加するリクエストを作成（try-except文でエラー処理）
+            try:
+                youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION, credentials=credentials)
+                request = youtube.playlistItems().insert(
                 part="snippet",
                 body={
                     "snippet": {
@@ -204,12 +243,53 @@ async def on_message(message):
                         "resourceId": {
                             "kind": "youtube#video",
                             "videoId": video_id_m
-                     }
-                 }
-                }
-            )
-            # youtube data apiでプレイリストに動画を追加するリクエストを実行
-            response = request.execute()
+                        }
+                    }
+                   }
+                )
+                # youtube data apiでプレイリストに動画を追加するリクエストを実行
+                response = request.execute()
+            except BrokenPipeError as e:
+                # エラーが発生した場合は再接続やリトライを行う（再試行回数や間隔は適宜調整）
+                print(f"BrokenPipeError: {e}")
+                print("Trying to reconnect...")
+                # 認証情報をリフレッシュする
+                credentials.refresh(Request())
+                # youtubeオブジェクトを再作成する
+                youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION, credentials=credentials)
+                # リクエストを再送する（最大3回まで）
+                retry_count = 0
+                while retry_count < 3:
+                    try:
+                        youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION, credentials=credentials)
+                        # リクエスト前に少し待つ
+                        time.sleep(1)
+                        request = youtube.playlistItems().insert(
+                            part="snippet",
+                            body={
+                                "snippet": {
+                                    "playlistId": select_playlist,
+                                    "resourceId": {
+                                        "kind": "youtube#video",
+                                        "videoId": video_id_m
+                                }
+                            }
+                           }
+                        )
+                        # youtube data apiでプレイリストに動画を追加するリクエストを実行
+                        response = request.execute()
+                        # リクエストが成功したらループを抜ける
+                        break
+                    except BrokenPipeError as e:
+                        # リクエストが失敗したら再試行回数を増やす
+                        print(f"BrokenPipeError: {e}")
+                        print("Trying to retry...")
+                        retry_count += 1
+                        # 最大試行回数を超えたらエラーを通知する
+                if retry_count == 3:
+                    print("Failed to reconnect or retry.")
+                    await message.channel.send("YouTube Data APIとの通信に失敗しました。しばらくしてからもう一度お試しください。")
+                    return
 
             # メッセージ送信者に返信するメッセージを作成
             added_message = f"「{playlist_name_m}」へ「{video_title}」の追加が完了しました。"
@@ -223,7 +303,7 @@ async def on_message(message):
                 # その他のサーバーidの場合はデフォルトのチャンネルidを設定
                 channel = bot.get_channel(0)
                 
-            # チャンネルidに返信する
+            # 対象チャンネルに返信する
             await channel.send(added_message)
 
 
