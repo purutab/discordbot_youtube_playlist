@@ -49,8 +49,8 @@ youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION, credentials=crede
 # データベースの情報を設定
 db_host = "localhost"
 db_name = "discordbot_youtube_playlist"
-db_user = "nagagutsu"
-db_password = "alohomola7751%"
+db_user = "USER"
+db_password = "PASSWORD"
 
 # データベースに接続する関数を定義する
 def connect_db():
@@ -61,7 +61,7 @@ def connect_db():
 
 
 # アクセストークンを設定
-TOKEN = "MTE1NjU5NDg1NjExODk3NjYzNA.GSO1T_.XOM3IxhPj71jDo_HVIhS53sXSCpenaBgV8gV4E"  # 自分のアクセストークンと置換
+TOKEN = "YOUR DISCORD TOKEN HERE"  # 自分のアクセストークンと置換
 
 # Botの大元となるオブジェクトを生成する
 bot = discord.Bot(
@@ -175,7 +175,7 @@ async def on_message(message):
             cur.execute(sql_playlist, (select_playlist,))
             playlist_record_id = cur.fetchone()[0]
 
-            # DBにプレイリストと動画の関係を挿入するSQL文を作成
+            # DBにプレイリストNo.と動画No.を紐付けるSQL文を作成
             sql_relation = """
                 INSERT INTO playlist_video_relation_table (playlist_record_id, video_record_id)
                 VALUES (%s, %s);
@@ -212,7 +212,7 @@ async def on_message(message):
             # その他のサーバーidの場合はデフォルトのチャンネルidを設定
             channel = bot.get_channel(0)
             
-        # チャンネルid「123456」のチャンネルに返信する
+        # チャンネルidに返信する
         await channel.send(added_message)
 
 
