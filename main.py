@@ -13,6 +13,9 @@ from google.auth.transport.requests import Request
 import os.path
 import pickle
 
+# version_p.pyファイルからVersionPクラスをインポート
+from commands.version_p import VersionP
+
 # APIキーとサービス名、バージョンを設定
 API_KEY = ""
 YOUTUBE_API_SERVICE_NAME = "youtube"
@@ -47,10 +50,11 @@ if credentials.expired:
 youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION, credentials=credentials)
 
 # データベースの情報を設定
-db_host = "localhost"
-db_name = "discordbot_youtube_playlist"
+db_host = "127.0.0.1"
+db_name = "discordbot_youtube_playlist2"
 db_user = "USER"
 db_password = "PASSWORD"
+
 
 # データベースに接続する関数を定義する
 def connect_db():
@@ -58,6 +62,7 @@ def connect_db():
     conn = psycopg2.connect(host=db_host, database=db_name, user=db_user, password=db_password)
     cur = conn.cursor()
     return conn, cur
+
 
 
 # アクセストークンを設定
@@ -73,7 +78,10 @@ bot = discord.Bot(
 # ボットが起動したときに実行されるイベント
 @bot.event
 async def on_ready():
-     # データベースに接続してコネクションとカーソルをグローバル変数に格納する
+    #グローバル変数{select_playlist}を定義
+    global select_playlist
+    select_playlist = None
+    # データベースに接続してコネクションとカーソルをグローバル変数に格納する
     global conn, cur
     conn, cur = connect_db()
     print(f'{bot.user.name} has connected to Discord!')
@@ -116,7 +124,7 @@ async def on_message(message):
         return
     
     # 特定のチャンネルIDだった場合は無視する
-    ignore_channels = [1159101801786781776, 1159101832711377007, 1069634960941666426,1116691516350541856,1142058797284724737,1140287772704382976] # 無視するチャンネルIDのリスト
+    ignore_channels = [1159101801786781776,1069634960941666426,1116691516350541856,1142058797284724737,1140287772704382976,1150074574596218962] # 無視するチャンネルIDのリスト
     if message.channel.id in ignore_channels:
         return
     
@@ -133,15 +141,18 @@ async def on_message(message):
         cur.execute(sql, (video_id_m,))
         result = cur.fetchone()
 
-        # 結果がNoneでなければ、値が存在するというメッセージを表示
+        # 追加済み出会った場合(検索結果がNone出ない場合)
         if result is not None:
            #返信の候補をリストに格納
             duplicate_replys = ["おいジョージ、前のと被ってんぞ" , "もうあるんだな、これが。" , "DIO様より「関係ない。消せ」" , "(動画の)用意はとっくにできてるぜ？" , "神は言っている...これはもう見たと。" , "オラこれもう見てっぞ！"]
             duplicate_reply = random.choice(duplicate_replys) # リストからランダムに一つ選ぶ
            # 送ったユーザーにリプライする
             await message.reply(f"{duplicate_reply}")
-        else:
-          # youtube data apiで動画情報を取得
+        elif select_playlist is None:
+            await message.reply("プレイリストが未選択です！")
+            return
+        elif select_playlist is not None:
+            # youtube data apiで動画情報を取得
             video_info = youtube.videos().list(
             part="snippet,contentDetails",
             id=video_id_m
@@ -175,12 +186,12 @@ async def on_message(message):
             cur.execute(sql_playlist, (select_playlist,))
             playlist_record_id = cur.fetchone()[0]
 
-            # DBにプレイリストNo.と動画No.を紐付けるSQL文を作成
+            # DBにプレイリストと動画の関係を挿入するSQL文を作成
             sql_relation = """
                 INSERT INTO playlist_video_relation_table (playlist_record_id, video_record_id)
                 VALUES (%s, %s);
             """
-            # DBにプレイリストと動画の関係を挿入
+            # DBにプレイリストNo.と動画No.を紐付ける
             cur.execute(sql_relation, (playlist_record_id, video_record_id))
             conn.commit()
 
@@ -198,31 +209,38 @@ async def on_message(message):
                 }
             )
             # youtube data apiでプレイリストに動画を追加するリクエストを実行
-                    response = request.execute()
+            response = request.execute()
 
-        # メッセージ送信者に返信するメッセージを作成
-        added_message = f"「{playlist_name_m}」へ「{video_title}」の追加が完了しました。"
-        
-        # サーバーidによって、送信先のチャンネルを変える
-        if server_id_in == 1116691515666878555:
-            channel = bot.get_channel(1150074574596218962)
-        elif server_id_in == 1069634960396394516:
-            channel = bot.get_channel(1159101763857694720)
-        else:
-            # その他のサーバーidの場合はデフォルトのチャンネルidを設定
-            channel = bot.get_channel(0)
+            # メッセージ送信者に返信するメッセージを作成
+            added_message = f"「{playlist_name_m}」へ「{video_title}」の追加が完了しました。"
             
-        # チャンネルidに返信する
-        await channel.send(added_message)
+            # サーバーidによって、送信先のチャンネルを変える
+            if server_id_in == 1116691515666878555:
+                channel = bot.get_channel(1150074574596218962)
+            elif server_id_in == 1069634960396394516:
+                channel = bot.get_channel(1159101763857694720)
+            else:
+                # その他のサーバーidの場合はデフォルトのチャンネルidを設定
+                channel = bot.get_channel(0)
+                
+            # チャンネルidに返信する
+            await channel.send(added_message)
 
 
-    
-elif message.content == 'hello':
-    # メッセージが"hello"だった場合、"Hello!"と返信する
-    await message.reply("Hello!")
-else:
-    # youtubeの動画idも"hello"も見つからなかった場合は何もしない
-   return
+        
+    elif message.content == 'hello':
+        # メッセージが"hello"だった場合、"Hello!"と返信する
+        await message.reply("Hello!")
+    else:
+        # youtubeの動画idも"hello"も見つからなかった場合は何もしない
+       return
+
+
+
+# helloコマンドを実装
+@bot.command(name="hello", description="Hello, worldと返す。ただそれだけ")
+async def hello(ctx: discord.ApplicationContext):
+        await ctx.respond("Hello, world!")
         
 
 
@@ -230,6 +248,11 @@ else:
 @bot.command(name="select_p", description="【管理者】データベース内にあるプレイリストを選択します")
 @commands.has_permissions(administrator=True) # 管理者権限を持っているかどうかをチェックするデコレータ
 async def select_p(ctx: discord.ApplicationContext, playlist_name: str): # デフォルト値をNoneにする
+    
+    #グローバル変数にプレイリスト名を格納
+    global playlist_name_m
+    playlist_name_m = playlist_name
+    
     # プレイリスト名が空でないかチェックする
     if not playlist_name:
         await ctx.respond("プレイリスト名を入力してください。") # respond() を使う
@@ -273,8 +296,9 @@ async def select_p(ctx: discord.ApplicationContext, playlist_name: str): # デ�
 
     # 結果がNoneでなければ、プレイリストidを変数に格納してメッセージを表示
     if result is not None:
-        # プレイリストidを変数に格納する
-        global select_playlist # グローバル変数にする
+        #グローバル変数{select_playlist}を定義
+        global select_playlist
+        # プレイリストidをグローバル変数に格納する
         select_playlist = result[0] # タプルの最初の要素を取り出す
         # 送ったユーザーにリプライする
         await ctx.respond(f"プレイリスト「{playlist_name}」を選択しました。ID:{select_playlist}")
@@ -284,7 +308,7 @@ async def select_p(ctx: discord.ApplicationContext, playlist_name: str): # デ�
         
 # list_pコマンドを実装
 @bot.command(name="list_p", description="データベース内にあるプレイリストを一覧表示します")
-async def select_p(ctx: discord.ApplicationContext): # デフォルト値をNoneにする
+async def list_p(ctx: discord.ApplicationContext): # デフォルト値をNoneにする
 
         # SQL文を作成
         sql = "SELECT playlist_name, playlist_link FROM playlist_info_table"
@@ -311,6 +335,8 @@ async def select_p(ctx: discord.ApplicationContext): # デフォルト値をNone
         return
 
 
+# VersionPクラスのインスタンスを作成して、Botオブジェクトに登録
+bot.add_cog(VersionP(bot))
 
 
 # Botを起動
