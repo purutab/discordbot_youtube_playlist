@@ -6,19 +6,23 @@ from discord.ext import commands # commandsをインポートする
 import re
 import psycopg2
 import random
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
-from googleapiclient.discovery import build
+import google_auth_oauthlib.flow
+import googleapiclient.discovery
+import googleapiclient.errors
 from google.auth.transport.requests import Request
-import os.path
+import os
 import pickle
+import requests
+import datetime
 import time
+
 
 # version_p.pyファイルからVersionPクラスをインポート
 from commands.version_p import VersionP
 
+
+
 # APIキーとサービス名、バージョンを設定
-API_KEY = ""
 YOUTUBE_API_SERVICE_NAME = "youtube"
 YOUTUBE_API_VERSION = "v3"
 
@@ -27,32 +31,46 @@ CLIENT_SECRETS_FILE = "client_secret_DiscordBot_youtube_playlist.json"
 SCOPES = ["https://www.googleapis.com/auth/youtube"]
 
 # 認証情報を保存するファイル名を設定
-CREDENTIALS_FILE = "credentials.json"
+CREDENTIALS_FILE = "credentials.pickle"
 
-# 認証情報が保存されているかチェック
-if os.path.exists(CREDENTIALS_FILE):
-    # 保存されている場合は読み込む
-    with open(CREDENTIALS_FILE, "rb") as f:
-        credentials = pickle.load(f)
-else:
-    # 保存されていない場合は新規に作成する
-    flow = InstalledAppFlow.from_client_secrets_file(CLIENT_SECRETS_FILE, SCOPES)
-    credentials = flow.run_local_server(port=0)
-    # 作成した認証情報を保存する
-    with open(CREDENTIALS_FILE, "wb") as f:
-        pickle.dump(credentials, f)
+# 認証情報を取得する関数
+def get_credentials():
+    # すでに認証情報が保存されている場合は、それを読み込む
+    if os.path.exists(CREDENTIALS_FILE):
+        with open(CREDENTIALS_FILE, "rb") as f:
+            credentials = pickle.load(f)
+    # 保存されていない場合は、OAuth 2.0フローを実行して取得する
+    else:
+        # フローを初期化する
+        flow = google_auth_oauthlib.flow.InstalledAppFlow.from_client_secrets_file(
+            CLIENT_SECRETS_FILE, SCOPES)
+        # フローを実行して認証情報を取得する
+        credentials = flow.run_local_server(port=0)
+        # 認証情報をファイルに保存する
+        with open(CREDENTIALS_FILE, "wb") as f:
+            pickle.dump(credentials, f)
+    # 認証情報を返す
+    return credentials
 
-# 認証情報が有効期限切れかチェック
-if credentials.expired:
-    # 有効期限切れの場合はトークンをリフレッシュする
-    credentials.refresh(Request())
-
-# 認証情報を使ってYouTube APIクライアントを作成する
-youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION, credentials=credentials)
+# YouTube Data APIのサービスオブジェクトを作成する関数
+def get_youtube_service():
+    # 認証情報を取得する
+    credentials = get_credentials()
+    # アクセストークンが有効期限切れの場合は、リフレッシュトークンで更新する
+    if credentials.expired:
+        credentials.refresh(Request())
+        # 更新したアクセストークンをファイルに保存する
+        with open(CREDENTIALS_FILE, "wb") as f:
+            pickle.dump(credentials, f)
+    # サービスオブジェクトを作成する
+    youtube = googleapiclient.discovery.build(
+        YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION, credentials=credentials)
+    # サービスオブジェクトを返す
+    return youtube
 
 # データベースの情報を設定
 db_host = "127.0.0.1"
-db_name = "discordbot_youtube_playlist2"
+db_name = "discordbot_youtube_playlist"
 db_user = "USER"
 db_password = "PASSWORD"
 
@@ -79,6 +97,7 @@ bot = discord.Bot(
 # ボットが起動したときに実行されるイベント
 @bot.event
 async def on_ready():
+    youtube = get_youtube_service()
     #グローバル変数{select_playlist}を定義
     global select_playlist
     select_playlist = None
@@ -142,7 +161,7 @@ async def on_message(message):
         cur.execute(sql, (video_id_m,))
         result = cur.fetchone()
 
-        # 追加済み出会った場合(検索結果がNone出ない場合)
+        # 追加済み出会った場合(検索結果がNoneでない場合)
         if result is not None:
            #返信の候補をリストに格納
             duplicate_replys = ["おいジョージ、前のと被ってんぞ" , "もうあるんだな、これが。" , "DIO様より「関係ない。消せ」" , "(動画の)用意はとっくにできてるぜ？" , "神は言っている...これはもう見たと。" , "オラこれもう見てっぞ！"]
@@ -155,25 +174,23 @@ async def on_message(message):
         elif select_playlist is not None:
             # youtube data apiで動画情報を取得（try-except文でエラー処理）
             try:
-                youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION, credentials=credentials)
+                youtube = get_youtube_service()
                 # youtube data apiで動画情報を取得
                 video_info = youtube.videos().list(
                 part="snippet,contentDetails",
                 id=video_id_m
                 ).execute()
-            except BrokenPipeError as e:
+            except:
                 # エラーが発生した場合は再接続やリトライを行う（再試行回数や間隔は適宜調整）
-                print(f"BrokenPipeError: {e}")
+                print(f"エラー発生")
                 print("Trying to reconnect...")
-                # 認証情報をリフレッシュする
-                credentials.refresh(Request())
                 # youtubeオブジェクトを再作成する
-                youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION, credentials=credentials)
+                youtube = get_youtube_service()
                 # リクエストを再送する（最大3回まで）
                 retry_count = 0
                 while retry_count < 3:
                     try:
-                        youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION, credentials=credentials)
+                        youtube = get_youtube_service()
                         # リクエスト前に少し待つ
                         time.sleep(1)
                         # youtube data apiで動画情報を取得
@@ -183,9 +200,9 @@ async def on_message(message):
                         ).execute()
                         # リクエストが成功したらループを抜ける
                         break
-                    except BrokenPipeError as e:
+                    except:
                         # リクエストが失敗したら再試行回数を増やす
-                        print(f"BrokenPipeError: {e}")
+                        print(f"エラー発生")
                         print("Trying to retry...")
                         retry_count += 1
                 # 最大試行回数を超えたらエラーを通知する
@@ -234,7 +251,7 @@ async def on_message(message):
 
             # youtube data apiでプレイリストに動画を追加するリクエストを作成（try-except文でエラー処理）
             try:
-                youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION, credentials=credentials)
+                youtube = get_youtube_service()
                 request = youtube.playlistItems().insert(
                 part="snippet",
                 body={
@@ -249,19 +266,17 @@ async def on_message(message):
                 )
                 # youtube data apiでプレイリストに動画を追加するリクエストを実行
                 response = request.execute()
-            except BrokenPipeError as e:
+            except:
                 # エラーが発生した場合は再接続やリトライを行う（再試行回数や間隔は適宜調整）
-                print(f"BrokenPipeError: {e}")
+                print(f"エラー発生")
                 print("Trying to reconnect...")
-                # 認証情報をリフレッシュする
-                credentials.refresh(Request())
                 # youtubeオブジェクトを再作成する
-                youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION, credentials=credentials)
+                youtube = get_youtube_service()
                 # リクエストを再送する（最大3回まで）
                 retry_count = 0
                 while retry_count < 3:
                     try:
-                        youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION, credentials=credentials)
+                        youtube = get_youtube_service()
                         # リクエスト前に少し待つ
                         time.sleep(1)
                         request = youtube.playlistItems().insert(
@@ -280,9 +295,9 @@ async def on_message(message):
                         response = request.execute()
                         # リクエストが成功したらループを抜ける
                         break
-                    except BrokenPipeError as e:
+                    except:
                         # リクエストが失敗したら再試行回数を増やす
-                        print(f"BrokenPipeError: {e}")
+                        print(f"エラー発生")
                         print("Trying to retry...")
                         retry_count += 1
                         # 最大試行回数を超えたらエラーを通知する
@@ -421,3 +436,4 @@ bot.add_cog(VersionP(bot))
 
 # Botを起動
 bot.run(TOKEN)
+
