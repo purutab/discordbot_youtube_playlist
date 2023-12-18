@@ -1,76 +1,38 @@
-#!/usr/bin/python
 # -- coding: shift_jis --
 # main.py
 import discord
 from discord.ext import commands # commandsをインポートする
+
 import re
 import psycopg2
 import random
-import google_auth_oauthlib.flow
-import googleapiclient.discovery
-import googleapiclient.errors
-from google.auth.transport.requests import Request
 import os
-import pickle
 import requests
 import datetime
 import time
 
 
+from google_get_credential import google_get_credential
+
 # version_p.pyファイルからVersionPクラスをインポート
 from commands.version_p import VersionP
+from commands.list_p import ListP
+from commands.list_v import ListV
+
+
+# Botの大元となるオブジェクトを生成する
+bot = discord.Bot(
+        intents=discord.Intents.all(),  # 全てのインテンツを利用できるようにする
+        activity=discord.Activity(name='集まったミーム達', type= discord.ActivityType.watching)  # "〇〇を視聴中"の"〇〇"を設定,
+)
 
 
 
-# APIキーとサービス名、バージョンを設定
-YOUTUBE_API_SERVICE_NAME = "youtube"
-YOUTUBE_API_VERSION = "v3"
 
-# 認証情報が含まれるJSONファイルの名前とスコープを設定
-CLIENT_SECRETS_FILE = "client_secret_DiscordBot_youtube_playlist.json"
-SCOPES = ["https://www.googleapis.com/auth/youtube"]
-
-# 認証情報を保存するファイル名を設定
-CREDENTIALS_FILE = "credentials.pickle"
-
-# 認証情報を取得する関数
-def get_credentials():
-    # すでに認証情報が保存されている場合は、それを読み込む
-    if os.path.exists(CREDENTIALS_FILE):
-        with open(CREDENTIALS_FILE, "rb") as f:
-            credentials = pickle.load(f)
-    # 保存されていない場合は、OAuth 2.0フローを実行して取得する
-    else:
-        # フローを初期化する
-        flow = google_auth_oauthlib.flow.InstalledAppFlow.from_client_secrets_file(
-            CLIENT_SECRETS_FILE, SCOPES)
-        # フローを実行して認証情報を取得する
-        credentials = flow.run_local_server(port=0)
-        # 認証情報をファイルに保存する
-        with open(CREDENTIALS_FILE, "wb") as f:
-            pickle.dump(credentials, f)
-    # 認証情報を返す
-    return credentials
-
-# YouTube Data APIのサービスオブジェクトを作成する関数
-def get_youtube_service():
-    # 認証情報を取得する
-    credentials = get_credentials()
-    # アクセストークンが有効期限切れの場合は、リフレッシュトークンで更新する
-    if credentials.expired:
-        credentials.refresh(Request())
-        # 更新したアクセストークンをファイルに保存する
-        with open(CREDENTIALS_FILE, "wb") as f:
-            pickle.dump(credentials, f)
-    # サービスオブジェクトを作成する
-    youtube = googleapiclient.discovery.build(
-        YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION, credentials=credentials)
-    # サービスオブジェクトを返す
-    return youtube
 
 # データベースの情報を設定
 db_host = "127.0.0.1"
-db_name = "discordbot_youtube_playlist"
+db_name = "DBNAME"
 db_user = "USER"
 db_password = "PASSWORD"
 
@@ -85,25 +47,22 @@ def connect_db():
 
 
 # アクセストークンを設定
-TOKEN = "YOUR DISCORD TOKEN HERE"  # 自分のアクセストークンと置換
-
-# Botの大元となるオブジェクトを生成する
-bot = discord.Bot(
-        intents=discord.Intents.all(),  # 全てのインテンツを利用できるようにする
-        activity=discord.Game("集まったミーム漁り"),  # "〇〇をプレイ中"の"〇〇"を設定,
-)
+TOKEN = "YOUR_DISCORD_TOKEN_HERE"  # 自分のアクセストークンと置換
 
 
 # ボットが起動したときに実行されるイベント
 @bot.event
 async def on_ready():
-    youtube = get_youtube_service()
+    youtube = google_get_credential.get_credentials()
     #グローバル変数{select_playlist}を定義
     global select_playlist
     select_playlist = None
     # データベースに接続してコネクションとカーソルをグローバル変数に格納する
     global conn, cur
     conn, cur = connect_db()
+    
+    global botname
+    botname = bot.user.name
     print(f'{bot.user.name} has connected to Discord!')
     print("select_pを忘れずに！")
     
@@ -174,7 +133,7 @@ async def on_message(message):
         elif select_playlist is not None:
             # youtube data apiで動画情報を取得（try-except文でエラー処理）
             try:
-                youtube = get_youtube_service()
+                youtube = google_get_credential.get_credentials()
                 # youtube data apiで動画情報を取得
                 video_info = youtube.videos().list(
                 part="snippet,contentDetails",
@@ -185,12 +144,12 @@ async def on_message(message):
                 print(f"エラー発生")
                 print("Trying to reconnect...")
                 # youtubeオブジェクトを再作成する
-                youtube = get_youtube_service()
+                youtube = google_get_credential.get_credentials()
                 # リクエストを再送する（最大3回まで）
                 retry_count = 0
                 while retry_count < 3:
                     try:
-                        youtube = get_youtube_service()
+                        youtube = google_get_credential.get_credentials()
                         # リクエスト前に少し待つ
                         time.sleep(1)
                         # youtube data apiで動画情報を取得
@@ -208,6 +167,7 @@ async def on_message(message):
                 # 最大試行回数を超えたらエラーを通知する
                 if retry_count == 3:
                     print("Failed to reconnect or retry.")
+                    print(youtube)
                     await message.channel.send("YouTube Data APIとの通信に失敗しました。しばらくしてからもう一度お試しください。")
                     return
                 
@@ -251,7 +211,7 @@ async def on_message(message):
 
             # youtube data apiでプレイリストに動画を追加するリクエストを作成（try-except文でエラー処理）
             try:
-                youtube = get_youtube_service()
+                youtube = google_get_credential.get_credentials()
                 request = youtube.playlistItems().insert(
                 part="snippet",
                 body={
@@ -271,12 +231,12 @@ async def on_message(message):
                 print(f"エラー発生")
                 print("Trying to reconnect...")
                 # youtubeオブジェクトを再作成する
-                youtube = get_youtube_service()
+                youtube = google_get_credential.get_credentials()
                 # リクエストを再送する（最大3回まで）
                 retry_count = 0
                 while retry_count < 3:
                     try:
-                        youtube = get_youtube_service()
+                        youtube = google_get_credential.get_credentials()
                         # リクエスト前に少し待つ
                         time.sleep(1)
                         request = youtube.playlistItems().insert(
@@ -401,39 +361,17 @@ async def select_p(ctx: discord.ApplicationContext, playlist_name: str): # デ�
         # 結果がNoneならば、プレイリスト名が存在しないというメッセージを表示
         await ctx.respond(f"プレイリスト「{playlist_name}」は存在しません。")
         
-# list_pコマンドを実装
-@bot.command(name="list_p", description="データベース内にあるプレイリストを一覧表示します")
-async def list_p(ctx: discord.ApplicationContext): # デフォルト値をNoneにする
-
-        # SQL文を作成
-        sql = "SELECT playlist_name, playlist_link FROM playlist_info_table"
-
-        # SQL文を実行して結果を取得
-        cur.execute(sql)
-        result = cur.fetchall()
-
-        # 結果が空でなければ、プレイリスト名とリンクの表を作成してメッセージを表示
-        if result:
-            # 表のヘッダーを作成
-            header = "| プレイリスト名 | リンク |\n"
-            # 表の内容を作成
-            content = ""
-            for row in result:
-                content += f"| {row[0]} | {row[1]} |\n" # リンクはそのまま表示する
-            # 表の全体を作成
-            table = header + content
-            # 送ったユーザーにリプライする
-            await ctx.respond(f"以下はデータベースに登録されているプレイリストの一覧です。\n{table}")
-        else:
-            # 結果が空ならば、データベースにプレイリストが存在しないというメッセージを表示
-            await ctx.respond("データベースにプレイリストが存在しません。")
-        return
 
 
 # VersionPクラスのインスタンスを作成して、Botオブジェクトに登録
 bot.add_cog(VersionP(bot))
 
+# ListPクラスのインスタンスを作成して、Botオブジェクトに登録
+bot.add_cog(ListP(bot))
+
+# ListVクラスのインスタンスを作成して、Botオブジェクトに登録
+bot.add_cog(ListV(bot))
+
 
 # Botを起動
 bot.run(TOKEN)
-
