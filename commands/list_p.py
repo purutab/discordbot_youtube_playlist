@@ -1,6 +1,6 @@
 # -- coding: shift_jis --
 # py-cordとその拡張機能をインポート
- #from email import header
+#from email import header
 import discord
 from discord.ext import commands
 from discord.types import channel

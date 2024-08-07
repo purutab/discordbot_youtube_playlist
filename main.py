@@ -122,10 +122,10 @@ async def on_message(message):
 
         # 追加済み出会った場合(検索結果がNoneでない場合)
         if result is not None:
-           #返信の候補をリストに格納
+            #返信の候補をリストに格納
             duplicate_replys = ["おいジョージ、前のと被ってんぞ" , "もうあるんだな、これが。" , "DIO様より「関係ない。消せ」" , "(動画の)用意はとっくにできてるぜ？" , "神は言っている...これはもう見たと。" , "オラこれもう見てっぞ！"]
             duplicate_reply = random.choice(duplicate_replys) # リストからランダムに一つ選ぶ
-           # 送ったユーザーにリプライする
+            # 送ったユーザーにリプライする
             await message.reply(f"{duplicate_reply}")
         elif select_playlist is None:
             await message.reply("プレイリストが未選択です！")
@@ -222,7 +222,7 @@ async def on_message(message):
                             "videoId": video_id_m
                         }
                     }
-                   }
+                }
                 )
                 # youtube data apiでプレイリストに動画を追加するリクエストを実行
                 response = request.execute()
@@ -249,7 +249,7 @@ async def on_message(message):
                                         "videoId": video_id_m
                                 }
                             }
-                           }
+                            }
                         )
                         # youtube data apiでプレイリストに動画を追加するリクエストを実行
                         response = request.execute()
@@ -288,7 +288,7 @@ async def on_message(message):
         await message.reply("Hello!")
     else:
         # youtubeの動画idも"hello"も見つからなかった場合は何もしない
-       return
+        return
 
 
 
